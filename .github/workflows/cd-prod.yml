@@ -1,0 +1,37 @@
+# name: CD - Deploy to Production
+
+# on:
+#   push:
+#     branches:
+#       - main
+#   workflow_dispatch:
+
+# jobs:
+#   deploy_prod:
+#     runs-on: ubuntu-latest
+#     environment: Production
+
+#     steps:
+#       - uses: actions/checkout@v4
+
+#       - name: Azure Login
+#         uses: azure/login@v1
+#         with:
+#           creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+#       - name: Set AKS Context
+#         run: |
+#           az aks get-credentials --resource-group ${{ secrets.AKS_RESOURCE_GROUP }} \
+#                                  --name ${{ secrets.AKS_CLUSTER_NAME }} --overwrite-existing
+
+#       - name: Attach ACR
+#         run: |
+#           az aks update --name ${{ secrets.AKS_CLUSTER_NAME }} \
+#                         --resource-group ${{ secrets.AKS_RESOURCE_GROUP }} \
+#                         --attach-acr ${{ secrets.ACR_LOGIN_SERVER }}
+
+#       - name: Deploy manifests
+#         run: kubectl -n production apply -f k8s/
+
+#       - name: Logout
+#         run: az logout

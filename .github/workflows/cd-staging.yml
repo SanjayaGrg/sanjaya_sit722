@@ -1,0 +1,52 @@
+# name: CD - Deploy to Staging
+
+# on:
+#   workflow_dispatch:
+#     inputs:
+#       aks_cluster_name:
+#         description: "AKS Cluster name"
+#         required: true
+#       aks_resource_group:
+#         description: "AKS Resource Group"
+#         required: true
+#       aks_acr_name:
+#         description: "Azure Container Registry"
+#         required: true
+
+# jobs:
+#   deploy_staging:
+#     runs-on: ubuntu-latest
+#     environment: Staging
+
+#     steps:
+#       - uses: actions/checkout@v4
+
+#       - name: Azure Login
+#         uses: azure/login@v1
+#         with:
+#           creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+#       - name: Set AKS Context
+#         run: |
+#           az aks get-credentials --resource-group ${{ github.event.inputs.aks_resource_group }} \
+#                                  --name ${{ github.event.inputs.aks_cluster_name }} --overwrite-existing
+
+#       - name: Create staging namespace
+#         run: kubectl create namespace staging-w10e1 || echo "Namespace exists"
+
+#       - name: Deploy all services
+#         run: |
+#           kubectl -n staging-w10e1 apply -f k8s/
+
+#       - name: Smoke test - wait for pods
+#         run: |
+#           kubectl -n staging-w10e1 rollout status deployment/product-service-w10e1 --timeout=180s
+#           kubectl -n staging-w10e1 rollout status deployment/order-service-w10e1 --timeout=180s
+#           kubectl -n staging-w10e1 rollout status deployment/customer-service-w10e1 --timeout=180s
+#           kubectl -n staging-w10e1 rollout status deployment/frontend --timeout=180s
+
+#       - name: Destroy staging environment
+#         run: kubectl delete namespace staging-w10e1
+
+#       - name: Logout
+#         run: az logout
