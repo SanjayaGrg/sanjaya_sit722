@@ -1,5 +1,5 @@
 name: CD - Deploy to Production
-# 
+
 on:
   push:
     branches: [ main ]
@@ -11,6 +11,7 @@ on:
   workflow_dispatch:
 
 env:
+  ACR_NAME: ${{ secrets.ACR_NAME }}
   ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
   PROD_NS: production
 
@@ -21,7 +22,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: azure/login@v1
+
+      - name: Azure Login
+        uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
@@ -30,40 +33,87 @@ jobs:
           az aks get-credentials --resource-group ${{ secrets.AKS_RESOURCE_GROUP }} \
                                  --name ${{ secrets.AKS_CLUSTER_NAME }} --overwrite-existing
 
-      - name: Ensure Namespace
+      - name: Attach ACR (idempotent)
+        run: |
+          az aks update --name ${{ secrets.AKS_CLUSTER_NAME }} \
+                        --resource-group ${{ secrets.AKS_RESOURCE_GROUP }} \
+                        --attach-acr ${{ env.ACR_NAME }}
+
+      - name: Ensure PROD namespace exists
         run: kubectl create namespace ${{ env.PROD_NS }} || echo "exists"
 
-      - name: Inject ACR into Manifests
+      - name: Inject ACR into manifests
         run: |
           find k8s -type f -name '*.yaml' -print0 | xargs -0 sed -i "s|ACR_LOGIN_SERVER|${{ env.ACR_LOGIN_SERVER }}|g"
 
-      - name: Apply Manifests
+      - name: Apply manifests to PRODUCTION (uses :latest)
         run: kubectl -n ${{ env.PROD_NS }} apply -f k8s/
 
-      - name: Wait for Backend IPs
+      - name: Rollout status (backend services)
         run: |
-          PRODUCT_IP=$(kubectl -n ${{ env.PROD_NS }} get svc product-service-w10e1 -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-          ORDER_IP=$(kubectl -n ${{ env.PROD_NS }} get svc order-service-w10e1 -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-          CUSTOMER_IP=$(kubectl -n ${{ env.PROD_NS }} get svc customer-service-w10e1 -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-          echo "PRODUCT_IP=$PRODUCT_IP" >> $GITHUB_ENV
-          echo "ORDER_IP=$ORDER_IP" >> $GITHUB_ENV
-          echo "CUSTOMER_IP=$CUSTOMER_IP" >> $GITHUB_ENV
+          kubectl -n ${{ env.PROD_NS }} rollout status deployment/product-service-w10e1 --timeout=180s
+          kubectl -n ${{ env.PROD_NS }} rollout status deployment/order-service-w10e1 --timeout=180s
+          kubectl -n ${{ env.PROD_NS }} rollout status deployment/customer-service-w10e1 --timeout=180s
 
-      - name: Inject Backend URLs into Frontend
+      # --- Wait for LoadBalancer IPs ---
+      - name: Wait for Product Service LoadBalancer IP
+        id: product_ip
+        run: |
+          for i in {1..60}; do
+            IP=$(kubectl -n ${{ env.PROD_NS }} get svc product-service-w10e1 -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+            if [ ! -z "$IP" ]; then
+              echo "PRODUCT_IP=$IP" >> $GITHUB_ENV
+              exit 0
+            fi
+            sleep 5
+          done
+          exit 1
+
+      - name: Wait for Order Service LoadBalancer IP
+        id: order_ip
+        run: |
+          for i in {1..60}; do
+            IP=$(kubectl -n ${{ env.PROD_NS }} get svc order-service-w10e1 -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+            if [ ! -z "$IP" ]; then
+              echo "ORDER_IP=$IP" >> $GITHUB_ENV
+              exit 0
+            fi
+            sleep 5
+          done
+          exit 1
+
+      - name: Wait for Customer Service LoadBalancer IP
+        id: customer_ip
+        run: |
+          for i in {1..60}; do
+            IP=$(kubectl -n ${{ env.PROD_NS }} get svc customer-service-w10e1 -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+            if [ ! -z "$IP" ]; then
+              echo "CUSTOMER_IP=$IP" >> $GITHUB_ENV
+              exit 0
+            fi
+            sleep 5
+          done
+          exit 1
+
+      # --- Inject API URLs into frontend code ---
+      - name: Inject Backend API URLs into Frontend
         run: |
           sed -i "s|const PRODUCT_API_BASE_URL = ''|const PRODUCT_API_BASE_URL = 'http://${PRODUCT_IP}:8000'|g" frontend/main.js
           sed -i "s|const ORDER_API_BASE_URL = ''|const ORDER_API_BASE_URL = 'http://${ORDER_IP}:8001'|g" frontend/main.js
           sed -i "s|const CUSTOMER_API_BASE_URL = ''|const CUSTOMER_API_BASE_URL = 'http://${CUSTOMER_IP}:8002'|g" frontend/main.js
 
-      - name: Build & Push Frontend with Production URLs
+      # --- Rebuild & Push frontend with injected API URLs ---
+      - name: Build & Push Frontend with injected API URLs
         run: |
           docker build -t ${{ env.ACR_LOGIN_SERVER }}/frontend:latest ./frontend
           docker push ${{ env.ACR_LOGIN_SERVER }}/frontend:latest
 
+      # --- Redeploy frontend with latest ---
       - name: Redeploy Frontend
-        run: kubectl -n ${{ env.PROD_NS }} rollout restart deployment/frontend
+        run: |
+          kubectl -n ${{ env.PROD_NS }} rollout restart deployment/frontend
+          kubectl -n ${{ env.PROD_NS }} rollout status deployment/frontend --timeout=180s
 
-      - name: Logout from Azure
+      - name: Logout
         run: az logout
         if: always()
-
