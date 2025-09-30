@@ -1,0 +1,61 @@
+name: Production Deployment
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
+  RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}-prod
+  AKS_CLUSTER_NAME: ${{ secrets.AKS_CLUSTER_NAME }}-prod
+
+jobs:
+  deploy-to-production:
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Login to Azure
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Get AKS credentials
+      run: |
+        az aks get-credentials --resource-group ${{ env.RESOURCE_GROUP }} --name ${{ env.AKS_CLUSTER_NAME }} --overwrite-existing
+
+    - name: Attach ACR to AKS
+      run: |
+        az aks update --name ${{ env.AKS_CLUSTER_NAME }} --resource-group ${{ env.RESOURCE_GROUP }} --attach-acr ${{ env.ACR_LOGIN_SERVER }}
+
+    - name: Deploy to production
+      run: |
+        # Replace ACR placeholders in Kubernetes manifests
+        sed -i "s|ACR_LOGIN_SERVER|${{ env.ACR_LOGIN_SERVER }}|g" k8s-manifests/*.yaml
+        
+        # Apply all Kubernetes manifests
+        kubectl apply -f k8s-manifests/
+
+    - name: Verify deployment
+      run: |
+        kubectl rollout status deployment/product-service-w10 --timeout=300s
+        kubectl rollout status deployment/order-service-w10 --timeout=300s
+        kubectl rollout status deployment/customer-service-w10 --timeout=300s
+        kubectl rollout status deployment/frontend --timeout=300s
+
+    - name: Get production URLs
+      run: |
+        echo "Production Frontend URL:"
+        kubectl get service frontend-w10 -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+        echo ""
+        echo "Production Services are ready!"
+
+    - name: Logout from Azure
+      run: |
+        az logout
+      if: always()
