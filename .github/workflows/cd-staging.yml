@@ -9,6 +9,7 @@ on:
   workflow_dispatch:
 
 env:
+  ACR_NAME: ${{ secrets.ACR_NAME }}
   ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
   STAGING_NS: staging-${{ github.run_id }}
 
@@ -19,7 +20,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: azure/login@v1
+
+      - name: Azure Login
+        uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
@@ -76,6 +79,9 @@ jobs:
           sed -i "s|const ORDER_API_BASE_URL = ''|const ORDER_API_BASE_URL = 'http://${ORDER_IP}:8001'|g" frontend/main.js
           sed -i "s|const CUSTOMER_API_BASE_URL = ''|const CUSTOMER_API_BASE_URL = 'http://${CUSTOMER_IP}:8002'|g" frontend/main.js
 
+      - name: Login to ACR
+        run: az acr login --name ${{ env.ACR_NAME }}
+
       - name: Build & Push Frontend with Staging URLs
         run: |
           docker build -t ${{ env.ACR_LOGIN_SERVER }}/frontend:staging ./frontend
@@ -94,4 +100,3 @@ jobs:
       - name: Logout from Azure
         run: az logout
         if: always()
-
