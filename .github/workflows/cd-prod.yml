@@ -1,37 +1,61 @@
-# name: CD - Deploy to Production
+name: CD - Deploy to Production
 
-# on:
-#   push:
-#     branches:
-#       - main
-#   workflow_dispatch:
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'k8s/**'
+      - '.github/workflows/cd-prod.yml'
+      - 'backend/**'
+      - 'frontend/**'
+  workflow_dispatch:
 
-# jobs:
-#   deploy_prod:
-#     runs-on: ubuntu-latest
-#     environment: Production
+env:
+  ACR_NAME: ${{ secrets.ACR_NAME }}
+  ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
+  PROD_NS: production
 
-#     steps:
-#       - uses: actions/checkout@v4
+jobs:
+  deploy_prod:
+    runs-on: ubuntu-latest
+    environment: Production
 
-#       - name: Azure Login
-#         uses: azure/login@v1
-#         with:
-#           creds: ${{ secrets.AZURE_CREDENTIALS }}
+    steps:
+      - uses: actions/checkout@v4
 
-#       - name: Set AKS Context
-#         run: |
-#           az aks get-credentials --resource-group ${{ secrets.AKS_RESOURCE_GROUP }} \
-#                                  --name ${{ secrets.AKS_CLUSTER_NAME }} --overwrite-existing
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-#       - name: Attach ACR
-#         run: |
-#           az aks update --name ${{ secrets.AKS_CLUSTER_NAME }} \
-#                         --resource-group ${{ secrets.AKS_RESOURCE_GROUP }} \
-#                         --attach-acr ${{ secrets.ACR_LOGIN_SERVER }}
+      - name: Set AKS Context
+        run: |
+          az aks get-credentials --resource-group ${{ secrets.AKS_RESOURCE_GROUP }} \
+                                 --name ${{ secrets.AKS_CLUSTER_NAME }} --overwrite-existing
 
-#       - name: Deploy manifests
-#         run: kubectl -n production apply -f k8s/
+      - name: Attach ACR (idempotent)
+        run: |
+          az aks update --name ${{ secrets.AKS_CLUSTER_NAME }} \
+                        --resource-group ${{ secrets.AKS_RESOURCE_GROUP }} \
+                        --attach-acr ${{ env.ACR_NAME }}
 
-#       - name: Logout
-#         run: az logout
+      - name: Ensure PROD namespace exists
+        run: kubectl create namespace ${{ env.PROD_NS }} || echo "exists"
+
+      - name: Inject ACR into manifests
+        run: |
+          find k8s -type f -name '*.yaml' -print0 | xargs -0 sed -i "s|ACR_LOGIN_SERVER|${{ env.ACR_LOGIN_SERVER }}|g"
+
+      - name: Apply manifests to PRODUCTION (uses :latest)
+        run: kubectl -n ${{ env.PROD_NS }} apply -f k8s/
+
+      - name: Rollout status
+        run: |
+          kubectl -n ${{ env.PROD_NS }} rollout status deployment/product-service-w10e1 --timeout=180s
+          kubectl -n ${{ env.PROD_NS }} rollout status deployment/order-service-w10e1 --timeout=180s
+          kubectl -n ${{ env.PROD_NS }} rollout status deployment/customer-service-w10e1 --timeout=180s
+          kubectl -n ${{ env.PROD_NS }} rollout status deployment/frontend --timeout=180s
+
+      - name: Logout
+        run: az logout
+        if: always()
