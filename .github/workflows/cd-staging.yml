@@ -28,19 +28,33 @@ jobs:
 
       - name: Set AKS Context
         run: |
-          az aks get-credentials --resource-group ${{ secrets.AKS_RESOURCE_GROUP }} \
-                                 --name ${{ secrets.AKS_CLUSTER_NAME }} --overwrite-existing
+          az aks get-credentials \
+            --resource-group ${{ secrets.AKS_RESOURCE_GROUP }} \
+            --name ${{ secrets.AKS_CLUSTER_NAME }} \
+            --overwrite-existing
 
       - name: Create Staging Namespace
         run: kubectl create namespace ${{ env.STAGING_NS }}
 
       - name: Inject ACR into Manifests
         run: |
-          find k8s -type f -name '*.yaml' -print0 | xargs -0 sed -i "s|ACR_LOGIN_SERVER|${{ env.ACR_LOGIN_SERVER }}|g"
+          find k8s -type f -name '*.yaml' -print0 | \
+          xargs -0 sed -i "s|ACR_LOGIN_SERVER|${{ env.ACR_LOGIN_SERVER }}|g"
 
-      - name: Deploy Backends
+      - name: Deploy Backends + Frontend
         run: kubectl -n ${{ env.STAGING_NS }} apply -f k8s/
 
+      # --- Rollout waits for backends ---
+      - name: Wait for Product Service rollout
+        run: kubectl -n ${{ env.STAGING_NS }} rollout status deployment/product-service-w10e1 --timeout=180s
+
+      - name: Wait for Order Service rollout
+        run: kubectl -n ${{ env.STAGING_NS }} rollout status deployment/order-service-w10e1 --timeout=180s
+
+      - name: Wait for Customer Service rollout
+        run: kubectl -n ${{ env.STAGING_NS }} rollout status deployment/customer-service-w10e1 --timeout=180s
+
+      # --- Get LoadBalancer IPs ---
       - name: Wait for Service IPs
         run: |
           echo "Waiting for Product Service IP..."
@@ -90,8 +104,42 @@ jobs:
       - name: Deploy Frontend
         run: kubectl -n ${{ env.STAGING_NS }} apply -f k8s/
 
-      - name: Smoke Test (Optional)
-        run: curl -f http://${PRODUCT_IP}:8000/docs || exit 1
+      # --- Smoke Tests with retries ---
+      - name: Smoke Test Product API
+        run: |
+          for i in {1..30}; do
+            if curl -sf http://${PRODUCT_IP}:8000/docs > /dev/null; then
+              echo "Product API is healthy!"
+              exit 0
+            fi
+            echo "Waiting for Product API..."
+            sleep 5
+          done
+          echo "Product API did not become healthy in time" && exit 1
+
+      - name: Smoke Test Order API
+        run: |
+          for i in {1..30}; do
+            if curl -sf http://${ORDER_IP}:8001/docs > /dev/null; then
+              echo "Order API is healthy!"
+              exit 0
+            fi
+            echo "Waiting for Order API..."
+            sleep 5
+          done
+          echo "Order API did not become healthy in time" && exit 1
+
+      - name: Smoke Test Customer API
+        run: |
+          for i in {1..30}; do
+            if curl -sf http://${CUSTOMER_IP}:8002/docs > /dev/null; then
+              echo "Customer API is healthy!"
+              exit 0
+            fi
+            echo "Waiting for Customer API..."
+            sleep 5
+          done
+          echo "Customer API did not become healthy in time" && exit 1
 
       - name: Destroy Staging Namespace
         if: always()

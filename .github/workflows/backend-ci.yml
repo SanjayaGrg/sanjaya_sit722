@@ -46,7 +46,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
         ports:
-          - 5432:5432
+          - 5434:5432
       
       # Order DB
       order_db:
