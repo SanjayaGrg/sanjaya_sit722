@@ -1,4 +1,4 @@
-name: CI - Build, Test, Push Images to ACR (testing branch)
+name: CI-TEST
 # 
 on:
   push:
