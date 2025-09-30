@@ -32,10 +32,6 @@ logger.info(
 )
 
 # --- FastAPI Application Setup ---
-CUSTOMER_SERVICE_URL = os.getenv("CUSTOMER_SERVICE_URL", "http://localhost:8002")
-PRODUCT_SERVICE_URL = os.getenv("PRODUCT_SERVICE_URL", "http://localhost:8000")
-ORDER_SERVICE_URL = os.getenv("ORDER_SERVICE_URL", "http://localhost:8001")
-
 app = FastAPI(
     title="Customer Service API",
     description="Manages orders for mini-ecommerce app, with synchronous stock deduction.",

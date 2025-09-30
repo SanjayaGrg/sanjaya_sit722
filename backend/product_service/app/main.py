@@ -105,10 +105,6 @@ rabbitmq_channel: Optional[aio_pika.Channel] = None
 rabbitmq_exchange: Optional[aio_pika.Exchange] = None
 
 # --- FastAPI Application Setup ---
-PRODUCT_SERVICE_URL = os.getenv("PRODUCT_SERVICE_URL", "http://localhost:8000")
-ORDER_SERVICE_URL = os.getenv("ORDER_SERVICE_URL", "http://localhost:8001")
-CUSTOMER_SERVICE_URL = os.getenv("CUSTOMER_SERVICE_URL", "http://localhost:8002")
-
 app = FastAPI(
     title="Product Service API",
     description="Manages products and stock for mini-ecommerce app, with Azure Storage integration.",

@@ -55,10 +55,6 @@ rabbitmq_channel: Optional[aio_pika.Channel] = None
 rabbitmq_exchange: Optional[aio_pika.Exchange] = None
 
 # --- FastAPI Application Setup ---
-ORDER_SERVICE_URL = os.getenv("ORDER_SERVICE_URL", "http://localhost:8001")
-PRODUCT_SERVICE_URL = os.getenv("PRODUCT_SERVICE_URL", "http://localhost:8000")
-CUSTOMER_SERVICE_URL = os.getenv("CUSTOMER_SERVICE_URL", "http://localhost:8002")
-
 app = FastAPI(
     title="Order Service API",
     description="Manages orders for mini-ecommerce app, with synchronous stock deduction.",

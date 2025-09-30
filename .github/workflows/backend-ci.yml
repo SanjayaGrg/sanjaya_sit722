@@ -18,14 +18,45 @@ jobs:
     runs-on: ubuntu-latest
 
     services:
-      postgres:
-        image: postgres:15-alpine
+      product_db:
+        image: postgres:15
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: products
+        # Make pg_isready available so the service is healthy before tests run
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
         ports:
           - 5432:5432
+
+      customer_db:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: customers
+        # Make pg_isready available so the service is healthy before tests run
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      # Order DB
+      order_db:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: orders
+        ports:
+          - 5433:5432
         options: >-
           --health-cmd "pg_isready -U postgres"
           --health-interval 10s
@@ -33,30 +64,63 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      # 1. Checkout the repository code to the runner
+      - name: Checkout repository
+        uses: actions/checkout@v4 # Action to check out your repository code
+
+      # 2. Set up Python environment
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5 # Action to set up Python environment
         with:
           python-version: '3.10'
 
+      # 3. Install dependencies and run code quality checks
       - name: Install dependencies
-        run: |
+        run: | # Use a multi-line script to install pip dependencies
           pip install --upgrade pip
-          pip install pytest httpx
+          # Loop through each backend service folder
           for req in backend/*/requirements.txt; do
+            echo "Installing $req"
             pip install -r "$req"
           done
+          # Install CI tools
+          pip install pytest httpx
 
-      - name: Run Product Service Tests
+      # 5. Run tests for product service
+      - name: Run product_service tests
         working-directory: backend/product_service
-        run: pytest -q
-
-      - name: Run Order Service Tests
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_DB: products
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        run: |
+          pytest tests --maxfail=1 --disable-warnings -q
+      
+      # 6. Run tests for order service
+      - name: Run order_service tests
         working-directory: backend/order_service
-        run: pytest -q
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5433
+          POSTGRES_DB: orders
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        run: |
+          pytest tests --maxfail=1 --disable-warnings -q
 
-      - name: Run Customer Service Tests
+      # 7. Run tests for Customer service
+      - name: Run customer_service tests
         working-directory: backend/customer_service
-        run: pytest -q
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5433
+          POSTGRES_DB: customers
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        run: |
+          pytest tests --maxfail=1 --disable-warnings -q
 
   build_and_push:
     runs-on: ubuntu-latest

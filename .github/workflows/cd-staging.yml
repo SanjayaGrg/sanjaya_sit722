@@ -1,5 +1,5 @@
 name: CD - Deploy to Staging
-# 
+
 on:
   push:
     branches: [ testing ]
