@@ -2,7 +2,7 @@ name: CD - Deploy to Temporary Staging
 
 on:
   workflow_run:
-    workflows: [ "CI - Build, Test, Push Images to ACR (testing branch)" ]
+    workflows: [ "ci.yml" ]   # Use filename instead of workflow name
     types: [ completed ]
   workflow_dispatch:
     inputs:
@@ -50,7 +50,6 @@ jobs:
       - name: Create temporary STAGING namespace
         run: kubectl create namespace ${{ env.STAGING_NS }} || echo "exists"
 
-      # Replace placeholder ACR_LOGIN_SERVER in your YAMLs with the real value
       - name: Inject ACR into manifests
         run: |
           find k8s -type f -name '*.yaml' -print0 | xargs -0 sed -i "s|ACR_LOGIN_SERVER|${{ env.ACR_LOGIN_SERVER }}|g"
@@ -58,7 +57,6 @@ jobs:
       - name: Apply manifests to STAGING
         run: kubectl -n ${{ env.STAGING_NS }} apply -f k8s/
 
-      # Point deployments to :testing tag for staging (prod uses :latest)
       - name: Use :testing tags in STAGING
         run: |
           kubectl -n ${{ env.STAGING_NS }} set image deployment/product-service-w10e1 \
